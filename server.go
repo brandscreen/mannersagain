@@ -24,6 +24,7 @@ type listener struct {
 }
 
 var ErrClosed = errors.New("mannersagain: listener has been gracefully closed")
+var exitHook func()
 
 func (l listener) Accept() (net.Conn, error) {
 	for {
@@ -95,14 +96,29 @@ func ListenAndServe(addr string, handler http.Handler) error {
 		<-done
 	}
 
-	if goagain.Strategy == goagain.Double && sig == goagain.SIGUSR2 {
-		// If we received SIGUSR2, re-exec the parent process.
-		if err := goagain.Exec(l); err != nil {
-			return err
+	exitHook = func() {
+		if goagain.Strategy == goagain.Double && sig == goagain.SIGUSR2 {
+			// If we received SIGUSR2, re-exec the parent process.
+			if err := goagain.Exec(l); err != nil {
+				log.Println("Failed to re-exec parent:", err)
+				os.Exit(1)
+			}
 		}
+
+		// We were told to exit, so do it!
+		os.Exit(0)
 	}
 
-	// We were told to exit, so do it!
-	os.Exit(0)
 	return nil
+}
+
+// Exit or re-exec the main process as required. Call from the main goroutine
+// after returning from ListenAndServe() and cleaning up application resources.
+// This function does not return.
+func Done() {
+	if exitHook != nil {
+		exitHook()
+	} else {
+		os.Exit(0)
+	}
 }
